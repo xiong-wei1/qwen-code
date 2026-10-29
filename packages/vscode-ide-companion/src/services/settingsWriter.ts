@@ -354,9 +354,15 @@ export function writeCodingPlanConfig(
   };
   delete settings.codingPlan;
 
-  // Default model
+  // Default model — update in place so sibling keys the user configured
+  // on the CLI side (reasoningEffort, …) survive. name and baseUrl are
+  // written together: every writer of model.name also writes model.baseUrl
+  // in the same scope (a real URL, or an empty-string tombstone), because
+  // the CLI resolver uses the persisted baseUrl to disambiguate the model.
   const defaultModelId = planConfig.template[0]?.id ?? 'qwen3.5-plus';
-  settings.model = { name: defaultModelId };
+  const model = ensureNestedObject(settings, 'model');
+  model.name = defaultModelId;
+  model.baseUrl = planConfig.template[0]?.baseUrl ?? '';
 
   writeSettings(settings);
 
@@ -412,9 +418,16 @@ export function writeModelProvidersConfig(params: {
   const nonTarget = existing.filter((e) => e.envKey !== 'OPENAI_API_KEY');
   providers[AuthType.USE_OPENAI] = [...modelArray, ...nonTarget];
 
-  // Active model
+  // Active model — update in place so sibling keys the user configured
+  // on the CLI side (reasoningEffort, …) survive. name and baseUrl are
+  // written together (see writeCodingPlanConfig): the paired baseUrl is
+  // the one configured for the active model, with the same fallback the
+  // provider array entry above received.
   if (params.activeModel) {
-    settings.model = { name: params.activeModel };
+    const model = ensureNestedObject(settings, 'model');
+    model.name = params.activeModel;
+    model.baseUrl =
+      params.modelProviders[params.activeModel] || 'https://api.openai.com/v1';
   }
 
   for (const plan of SUBSCRIPTION_PLAN_OPTIONS) {

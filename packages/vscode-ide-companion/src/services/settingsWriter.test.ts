@@ -282,7 +282,10 @@ describe('settingsWriter', () => {
     expect(env.OPENAI_API_KEY).toBe('manual-key');
     expect(env[CODING_PLAN_ENV_KEY]).toBeUndefined();
     expect(settings.codingPlan).toBeUndefined();
-    expect(settings.model).toEqual({ name: 'gpt-4o' });
+    expect(settings.model).toEqual({
+      name: 'gpt-4o',
+      baseUrl: 'https://api.openai.com/v1',
+    });
     // The new entry must be present
     expect(openaiModels[0]).toEqual({
       id: 'gpt-4o',
@@ -295,6 +298,73 @@ describe('settingsWriter', () => {
       (m) => m.envKey === CODING_PLAN_ENV_KEY,
     );
     expect(preserved.length).toBeGreaterThan(0);
+  });
+
+  it('preserves model sibling keys when writing the Coding Plan default model', () => {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        model: {
+          name: 'cli-model',
+          baseUrl: 'https://cli.example/v1',
+          reasoningEffort: 'high',
+          maxSessionTurns: 42,
+        },
+      }),
+    );
+
+    const returned = writeCodingPlanConfig('global', 'coding-plan-key');
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as {
+      model: Record<string, unknown>;
+    };
+    expect(settings.model.name).not.toBe('cli-model');
+    // baseUrl is rewritten together with name (the paired template URL),
+    // replacing the stale one left by the previously selected model.
+    expect(settings.model.baseUrl).toBe(
+      returned[settings.model.name as string],
+    );
+    expect(settings.model.baseUrl).not.toBe('https://cli.example/v1');
+    expect(settings.model).toMatchObject({
+      reasoningEffort: 'high',
+      maxSessionTurns: 42,
+    });
+  });
+
+  it('preserves model sibling keys when writing the active model', () => {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        model: {
+          name: 'cli-model',
+          baseUrl: 'https://cli.example/v1',
+          reasoningEffort: 'high',
+          maxSessionTurns: 42,
+        },
+      }),
+    );
+
+    writeModelProvidersConfig({
+      apiKey: 'manual-key',
+      modelProviders: {
+        'gpt-4o': 'https://provider.example/v1',
+      },
+      activeModel: 'gpt-4o',
+    });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as {
+      model: Record<string, unknown>;
+    };
+    // baseUrl is rewritten together with name (the URL configured for the
+    // active model), replacing the stale one; other siblings survive.
+    expect(settings.model).toEqual({
+      name: 'gpt-4o',
+      baseUrl: 'https://provider.example/v1',
+      reasoningEffort: 'high',
+      maxSessionTurns: 42,
+    });
   });
 
   it('preserves existing OpenAI models when the file is still in the reverted #5089 V5 shape', () => {
